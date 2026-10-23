@@ -2,6 +2,15 @@
 
 Real-time multiplayer Pong for two players, built with Node.js and WebSockets. The server owns the game, and each browser only sends input and draws what the server reports.
 
+
+<p align="center">
+  <img src="pong-game.png.png" alt="Pong Online Multiplayer Gameplay" width="900">
+</p>
+
+<p align="center">
+  <strong>Real-time multiplayer Pong built with Node.js and WebSockets.</strong>
+</p>
+
 ## Features
 
 - **Server-authoritative physics.** Ball, paddles and score are simulated on the server, so a client can't cheat by lying about positions.
