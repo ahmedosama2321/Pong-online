@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pong online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a2b2a;
+    --felt: #0f4c45;
+    --line: #cfe3d6;
+    --ink: #e8f2ea;
+    --muted: #9dbbaf;
+    --me: #ff7a59;
+    --them: #bfd8ff;
+    --ball: #fff4d6;
+    --panel: #0c3533;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  [hidden] { display: none !important; }
+  main, section.game { width: 100%; max-width: 880px; }
+
+  h1 { margin: 0 0 8px; font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; font-weight: 800; letter-spacing: -0.02em; }
+  .lead { margin: 0 0 28px; color: var(--muted); max-width: 46ch; }
+
+  button, input {
+    font: inherit;
+    color: inherit;
+    border-radius: 10px;
+    border: 1.5px solid rgba(207, 227, 214, 0.35);
+    background: transparent;
+    padding: 10px 18px;
+  }
+  button { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+  button:hover { background: rgba(207, 227, 214, 0.1); border-color: var(--line); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--them); outline-offset: 2px; }
+  button:disabled { opacity: 0.55; cursor: default; }
+  button.primary { background: var(--me); border-color: var(--me); color: #2a0f08; font-weight: 600; }
+  button.primary:hover { background: #ff9073; border-color: #ff9073; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  .join { display: flex; gap: 12px; flex-wrap: wrap; }
+  .join input { width: 9ch; text-align: center; letter-spacing: 0.25em; font-weight: 600; background: var(--panel); }
+  #lobbyMsg { min-height: 1.5em; margin: 18px 0 0; color: var(--muted); }
+
+  .hud { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .hud .grow { flex: 1; }
+  .hud button { padding: 6px 14px; }
+  #ping { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #roomCode { letter-spacing: 0.15em; margin-left: 4px; }
+
+  .stage { position: relative; width: 100%; max-width: 880px; border-radius: 14px; overflow: hidden; background: var(--felt); }
+  canvas { display: block; touch-action: none; cursor: none; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    padding: 16px; text-align: center;
+    background: rgba(10, 43, 42, 0.8);
+  }
+  #ovTitle { margin: 0; font-size: clamp(1.5rem, 5vw, 2.4rem); font-weight: 800; }
+  #ovSub { margin: 0; color: var(--muted); }
+  #ovCode { margin: 6px 0; font-size: clamp(2rem, 8vw, 3.5rem); font-weight: 800; letter-spacing: 0.2em; color: var(--ball); }
+  #ovActions { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
+  .hint { margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+  .swatch { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 3px; background: var(--me); vertical-align: -0.05em; }
+</style>
+</head>
+<body>
+
+<main id="lobby">
+  <h1>Pong online</h1>
+  <p class="lead">Two players, one ball. The server runs the match and your browser just draws it.</p>
+  <div class="actions">
+    <button id="quick" class="primary">Find an opponent</button>
+    <button id="create">Create private room</button>
+  </div>
+  <div class="join">
+    <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" aria-label="Room code" spellcheck="false">
+    <button id="join">Join room</button>
+  </div>
+  <p id="lobbyMsg" role="status"></p>
+  <button id="cancel" hidden>Cancel search</button>
+</main>
+
+<section id="game" class="game" hidden>
+  <header class="hud">
+    <button id="codeChip" title="Copy invite link">Room<span id="roomCode"></span></button>
+    <span class="grow"></span>
+    <span id="ping">– ms</span>
+    <button id="mute">Sound on</button>
+    <button id="leave">Leave</button>
+  </header>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div id="overlay" role="status" aria-live="polite" hidden>
+      <p id="ovTitle"></p>
+      <p id="ovSub"></p>
+      <p id="ovCode" hidden></p>
+      <div id="ovActions">
+        <button id="btnA" class="primary"></button>
+        <button id="btnB">Leave room</button>
+      </div>
+    </div>
+  </div>
+  <p class="hint">You play the <span class="swatch"></span> orange paddle on the left. Move with W / S or the arrow keys, or point and drag inside the court.</p>
+</section>
+
+<script>
+(() => {
+'use strict';
+
+// Must match server.js
+const W = 800, H = 500, PW = 12, PH = 90, MARGIN = 30, R = 8, SPEED = 420;
+// Render remote state this far in the past so there are always two snapshots to blend.
+const INTERP_MS = 100;
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const cv = $('cv'), ctx = cv.getContext('2d');
+const lobbyEl = $('lobby'), gameEl = $('game'), overlay = $('overlay');
+const COLORS = { felt: css('--felt'), line: css('--line'), me: css('--me'), them: css('--them'), ball: css('--ball'), ink: css('--ink') };
+
+// ─────────── connection ───────────
+let ws = null, pingTimer = null;
+const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+
+function connect() {
+  return new Promise((resolve, reject) => {
+    if (ws && ws.readyState === WebSocket.OPEN) return resolve();
+    const sock = new WebSocket(wsUrl);
+    ws = sock;
+    sock.onopen = () => { startPing(); resolve(); };
+    sock.onmessage = (e) => handle(JSON.parse(e.data));
+    sock.onerror = () => reject(new Error('connect failed'));
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      stopPing();
+      toLobby('Connection lost. Start again when you are ready.');
+    };
+  });
+}
+function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+function startPing() {
+  stopPing();
+  const ping = () => send({ t: 'ping', ts: performance.now() });
+  ping();
+  pingTimer = setInterval(ping, 2000);
+}
+function stopPing() { clearInterval(pingTimer); }
+
+// ─────────── game state (client view) ───────────
+let side = 0, code = '';
+let buf = [];            // received snapshots: { at, b:[x,y,vx,vy], p:[y0,y1] }
+let lastSv = -1;
+let myY = (H - PH) / 2;  // locally predicted own paddle (top edge)
+let dir = 0;             // our current input direction
+let serverPhase = 'waiting', score = [0, 0], cd = 0;
+let notice = '', iRequestedRematch = false, oppRequestedRematch = false;
+let pointerY = null;
+
+function resetLocal() {
+  buf = []; lastSv = -1; myY = (H - PH) / 2; dir = 0;
+  serverPhase = 'waiting'; score = [0, 0]; cd = 0;
+  notice = ''; iRequestedRematch = false; oppRequestedRematch = false;
+}
+
+function handle(m) {
+  switch (m.t) {
+    case 'joined':
+      side = m.side; code = m.code;
+      resetLocal();
+      showGame();
+      break;
+    case 'queued':
+      setLobbyMsg('Looking for an opponent…');
+      $('cancel').hidden = false;
+      break;
+    case 's':
+      onState(m);
+      break;
+    case 'opponent_left':
+      notice = 'Your opponent left the room.';
+      break;
+    case 'rematch_req':
+      oppRequestedRematch = true;
+      renderOverlay(true);
+      break;
+    case 'error':
+      setLobbyMsg(m.msg);
+      break;
+    case 'pong':
+      $('ping').textContent = `${Math.round(performance.now() - m.ts)} ms`;
+      break;
+  }
+}
+
+function onState(m) {
+  const now = performance.now();
+  if (m.sv !== lastSv) { buf.length = 0; lastSv = m.sv; } // new serve → don't blend across the reset
+  buf.push({ at: now, b: m.b, p: m.p });
+  if (buf.length > 30) buf.shift();
+
+  const prevPhase = serverPhase;
+  serverPhase = m.ph; score = m.sc; cd = m.cd;
+  if (prevPhase === 'over' && serverPhase !== 'over') { iRequestedRematch = false; oppRequestedRematch = false; }
+
+  // Reconcile the predicted paddle with the authoritative one.
+  const active = serverPhase === 'countdown' || serverPhase === 'playing';
+  const err = m.p[side] - myY;
+  if (!active || Math.abs(err) > 40) myY = m.p[side];  // big drift or not simulating → snap
+  else if (dir === 0) myY += err * 0.3;               // idle → ease onto the server value
+  // while moving, small errors are just network latency; keep the prediction
+
+  for (const e of m.ev) playEvent(e);
+  renderOverlay();
+}
+
+// Position of the ball and the opponent paddle at (now − INTERP_MS).
+function sample() {
+  const n = buf.length;
+  if (!n) return null;
+  const rt = performance.now() - INTERP_MS;
+  const last = buf[n - 1];
+  if (rt >= last.at) { // ran out of snapshots → extrapolate briefly along the ball velocity
+    const dt = Math.min((rt - last.at) / 1000, 0.1);
+    return { x: last.b[0] + last.b[2] * dt, y: last.b[1] + last.b[3] * dt, p: last.p };
+  }
+  if (rt <= buf[0].at) return { x: buf[0].b[0], y: buf[0].b[1], p: buf[0].p };
+  for (let i = n - 2; i >= 0; i--) {
+    if (buf[i].at <= rt) {
+      const a = buf[i], b = buf[i + 1];
+      const k = (rt - a.at) / (b.at - a.at);
+      return {
+        x: lerp(a.b[0], b.b[0], k), y: lerp(a.b[1], b.b[1], k),
+        p: [lerp(a.p[0], b.p[0], k), lerp(a.p[1], b.p[1], k)],
+      };
+    }
+  }
+  return null;
+}
+
+// ─────────── input ───────────
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  if (gameEl.hidden || e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (['arrowup', 'arrowdown', 'w', 's'].includes(k)) { keys.add(k); e.preventDefault(); }
+});
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+
+function toGameY(e) {
+  const r = cv.getBoundingClientRect();
+  return ((e.clientY - r.top) / r.height) * H;
+}
+cv.addEventListener('pointermove', (e) => { pointerY = toGameY(e); });
+cv.addEventListener('pointerdown', (e) => { pointerY = toGameY(e); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') pointerY = null; });
+cv.addEventListener('pointercancel', () => { pointerY = null; });
+cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') pointerY = null; });
+
+function wantedDir() {
+  const up = keys.has('arrowup') || keys.has('w');
+  const down = keys.has('arrowdown') || keys.has('s');
+  if (up !== down) return up ? -1 : 1;
+  if (pointerY !== null) {
+    const d = pointerY - (myY + PH / 2);
+    return Math.abs(d) < 12 ? 0 : Math.sign(d);
+  }
+  return 0;
+}
+
+// ─────────── sound ───────────
+let actx = null, muted = false;
+function initAudio() { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); }
+function beep(freq, dur = 0.06, type = 'square', vol = 0.05, delay = 0) {
+  if (muted || !actx) return;
+  const t0 = actx.currentTime + delay;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(actx.destination);
+  o.start(t0); o.stop(t0 + dur);
+}
+function playEvent(e) {
+  if (e === 'hit') beep(520);
+  else if (e === 'wall') beep(300, 0.04);
+  else if (e === 'score') beep(150, 0.25, 'sawtooth', 0.06);
+  else if (e === 'win') [523, 659, 784].forEach((f, i) => beep(f, 0.18, 'triangle', 0.07, 0.15 * (i + 1)));
+}
+
+// ─────────── rendering ───────────
+function resize() {
+  const w = Math.min($('stage').clientWidth || 880, 880);
+  const dpr = window.devicePixelRatio || 1;
+  cv.style.width = `${w}px`;
+  cv.style.height = `${(w * H) / W}px`;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(((w * H) / W) * dpr);
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+}
+addEventListener('resize', () => { if (!gameEl.hidden) resize(); });
+
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+  ctx.fill();
+}
+
+function draw() {
+  const s = sample();
+  const mx = (x) => (side === 1 ? W - x : x); // everybody sees themselves on the left
+
+  ctx.fillStyle = COLORS.felt;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = 'rgba(207,227,214,.55)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(10, 10, W - 20, H - 20);
+  ctx.setLineDash([14, 14]);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W / 2, 16); ctx.lineTo(W / 2, H - 16); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.font = '800 120px "Bricolage Grotesque", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(232,242,234,.16)';
+  ctx.fillText(String(score[side]), W / 4, 160);
+  ctx.fillText(String(score[1 - side]), (3 * W) / 4, 160);
+
+  const oppY = s ? s.p[1 - side] : (H - PH) / 2;
+  ctx.fillStyle = COLORS.me;   rr(MARGIN, myY, PW, PH, 5);
+  ctx.fillStyle = COLORS.them; rr(W - MARGIN - PW, oppY, PW, PH, 5);
+
+  if (s && serverPhase !== 'waiting') {
+    ctx.fillStyle = COLORS.ball;
+    ctx.shadowColor = 'rgba(255,244,214,.6)';
+    ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(mx(s.x), s.y, R, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  if (serverPhase === 'countdown' && score[0] + score[1] === 0 && cd > 0) {
+    ctx.fillStyle = COLORS.ink;
+    ctx.font = '800 96px "Bricolage Grotesque", system-ui, sans-serif';
+    ctx.fillText(String(Math.ceil(cd)), W / 2, H / 2 + 34);
+  }
+}
+
+let lastT = performance.now();
+function frame(t) {
+  const dt = Math.min((t - lastT) / 1000, 0.05);
+  lastT = t;
+  if (!gameEl.hidden) {
+    const d = wantedDir();
+    if (d !== dir) { dir = d; send({ t: 'input', dir }); }
+    if (serverPhase === 'countdown' || serverPhase === 'playing') myY = clamp(myY + dir * SPEED * dt, 0, H - PH);
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ─────────── overlay + screens ───────────
+let overlayKey = '', btnAMode = '';
+function renderOverlay(force) {
+  let key, model = null;
+  if (serverPhase === 'waiting') {
+    key = `w|${code}|${notice}`;
+    model = { title: 'Waiting for an opponent', sub: notice || 'Send them this code or the invite link.', showCode: true, a: 'Copy invite link', mode: 'copy' };
+  } else if (serverPhase === 'over') {
+    const me = score[side], op = score[1 - side];
+    const sub = iRequestedRematch ? 'Waiting for your opponent to accept…' : oppRequestedRematch ? 'Your opponent wants a rematch.' : `${me} – ${op}`;
+    key = `o|${me}|${op}|${iRequestedRematch}|${oppRequestedRematch}`;
+    model = { title: me > op ? 'You won' : 'You lost', sub, showCode: false, a: 'Play again', mode: 'rematch', aDisabled: iRequestedRematch };
+  } else {
+    key = 'none';
+  }
+  if (key === overlayKey && !force) return;
+  overlayKey = key;
+  if (!model) { overlay.hidden = true; return; }
+  overlay.hidden = false;
+  $('ovTitle').textContent = model.title;
+  $('ovSub').textContent = model.sub;
+  $('ovCode').hidden = !model.showCode;
+  $('ovCode').textContent = code;
+  $('btnA').textContent = model.a;
+  $('btnA').disabled = !!model.aDisabled;
+  btnAMode = model.mode;
+}
+
+function showGame() {
+  lobbyEl.hidden = true; gameEl.hidden = false;
+  $('roomCode').textContent = code;
+  $('cancel').hidden = true;
+  resize();
+  overlayKey = '';
+  renderOverlay(true);
+}
+function toLobby(msg = '') {
+  gameEl.hidden = true; lobbyEl.hidden = false;
+  $('cancel').hidden = true;
+  setLobbyMsg(msg);
+}
+function setLobbyMsg(t) { $('lobbyMsg').textContent = t; }
+
+async function copyInvite(btn) {
+  const link = `${location.origin}/?room=${code}`;
+  try { await navigator.clipboard.writeText(link); } catch { return; }
+  const old = btn.textContent;
+  btn.textContent = 'Copied';
+  setTimeout(() => { btn.textContent = old; }, 1500);
+}
+
+// ─────────── wiring ───────────
+async function act(fn) {
+  initAudio();
+  setLobbyMsg('');
+  try { await connect(); fn(); } catch { setLobbyMsg('Could not reach the server.'); }
+}
+$('quick').onclick = () => act(() => send({ t: 'quick' }));
+$('create').onclick = () => act(() => send({ t: 'create' }));
+$('join').onclick = () => {
+  const c = $('code').value.trim();
+  if (c.length !== 4) return setLobbyMsg('Enter the 4-letter room code.');
+  act(() => send({ t: 'join', code: c }));
+};
+$('code').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase(); });
+$('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('join').click(); });
+$('cancel').onclick = () => { send({ t: 'leave' }); $('cancel').hidden = true; setLobbyMsg(''); };
+
+$('leave').onclick = $('btnB').onclick = () => { send({ t: 'leave' }); toLobby(); };
+$('codeChip').onclick = (e) => copyInvite(e.currentTarget);
+$('btnA').onclick = (e) => {
+  if (btnAMode === 'copy') copyInvite(e.currentTarget);
+  else if (btnAMode === 'rematch') { iRequestedRematch = true; send({ t: 'rematch' }); renderOverlay(true); }
+};
+$('mute').onclick = (e) => { muted = !muted; e.currentTarget.textContent = muted ? 'Sound off' : 'Sound on'; };
+
+// Invite links: /?room=ABCD joins straight away.
+const invited = new URLSearchParams(location.search).get('room');
+if (invited && /^[a-zA-Z]{4}$/.test(invited)) {
+  $('code').value = invited.toUpperCase();
+  history.replaceState(null, '', '/');
+  setLobbyMsg('Joining room…');
+  connect().then(() => send({ t: 'join', code: invited })).catch(() => setLobbyMsg('Could not reach the server.'));
+}
+})();
+</script>
+</body>
+</html>
